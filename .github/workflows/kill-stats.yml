@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: CC0-1.0
+# This file is released into the public domain under the CC0 1.0 Universal license.
+name: Update kill statistics
+
+# Manual only. Regenerates public/data/kill_stats/ incrementally and commits any
+# changes to main. The processed-id lists are persisted with actions/cache so
+# each run only fetches killmails that were not counted before.
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Number of days to aggregate"
+        default: "7"
+      max_per_day:
+        description: "Killmails per day cap (0 = full, no sampling)"
+        default: "500"
+
+permissions:
+  contents: write
+  actions: write # allow `gh workflow run` to dispatch the deploy workflow
+
+concurrency:
+  group: kill-stats
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # Rolling cache: a unique key each run always saves, and the prefix
+      # restore-key loads the most recent previous id lists.
+      - name: Restore processed-id cache
+        uses: actions/cache@v6
+        with:
+          path: .cache/processed_ids
+          key: killstats-ids-${{ github.run_id }}
+          restore-keys: |
+            killstats-ids-
+
+      - name: Aggregate kill statistics
+        env:
+          # Full ESI User-Agent (with contact) — kept out of the repo. Add a
+          # repository secret named ESI_USER_AGENT.
+          ESI_USER_AGENT: ${{ secrets.ESI_USER_AGENT }}
+        run: >-
+          python scripts/build_kill_stats.py
+          --days "${{ inputs.days }}"
+          --max-per-day "${{ inputs.max_per_day }}"
+
+      - name: Commit updated kill statistics
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/kill_stats
+          if git diff --cached --quiet; then
+            echo "No changes — nothing to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Update kill statistics (manual run)"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A push made with GITHUB_TOKEN does not trigger the deploy workflow, so
+      # dispatch it explicitly (only when the data actually changed).
+      - name: Trigger deploy
+        if: steps.commit.outputs.changed == 'true'
+        run: gh workflow run deploy.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

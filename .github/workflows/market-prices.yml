@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: CC0-1.0
+# This file is released into the public domain under the CC0 1.0 Universal license.
+name: Regenerate market prices
+
+# Manual only. Recomputes public/data/market_prices.json (the per-day prices that
+# size the Tree Map tiles) from the committed kill_stats window and market_tree,
+# and commits any change to main (then dispatches the Pages deploy). Rerun this
+# after the kill-stats window advances so the prices stay in sync.
+on:
+  workflow_dispatch:
+    inputs:
+      all_window:
+        description: "Price every day in the kill window (else just the latest two)"
+        type: boolean
+        default: false
+      rate:
+        description: "Target ESI requests per second"
+        default: "6"
+
+permissions:
+  contents: write
+  actions: write # allow `gh workflow run` to dispatch the deploy workflow
+
+concurrency:
+  group: market-prices
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Regenerate market prices
+        env:
+          # Full ESI/zKillboard User-Agent (with contact) — kept out of the repo.
+          # Add a repository secret named ESI_USER_AGENT.
+          ESI_USER_AGENT: ${{ secrets.ESI_USER_AGENT }}
+        run: >-
+          python scripts/build_market_prices.py
+          --rate "${{ inputs.rate }}"
+          ${{ inputs.all_window && '--all-window' || '' }}
+
+      - name: Commit market prices
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/market_prices.json
+          if git diff --cached --quiet; then
+            echo "No changes - market_prices.json is already up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Regenerate market_prices.json (manual run)"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A push made with GITHUB_TOKEN does not trigger the deploy workflow, so
+      # dispatch it explicitly (only when the prices actually changed).
+      - name: Trigger deploy
+        if: steps.commit.outputs.changed == 'true'
+        run: gh workflow run deploy.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

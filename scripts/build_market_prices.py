@@ -16,8 +16,15 @@ Pipeline:
 2. Collect the item type ids to price: by default the union of the items in the
    latest two day files (what the treemap needs), or every day in the window
    with ``--all-window``.
-3. For each type, fetch ESI ``GET /markets/{region}/history/?type_id={id}`` (The
-   Forge by default) and keep the ``average`` for each window date present.
+3. For each type, fetch a per-day average price for each window date:
+   - **Capital ships** (types under the *Ships → Capital Ships* market group in
+     ``market_tree.json``) are priced from zKillboard's Prices API
+     (``GET https://zkillboard.com/api/prices/{id}/``) — they trade thinly or not
+     at all on the Forge market. zKB returns ``{ "<date>": price, …,
+     "currentPrice": "…" }``; its daily history can be stale for capitals, so any
+     window date it lacks falls back to ``currentPrice``.
+   - **Everything else** uses ESI ``GET /markets/{region}/history/?type_id={id}``
+     (The Forge by default), keeping the ``average`` for each window date present.
 4. Write ``public/data/market_prices.json``:
    ``{ generated, region, from, to, dates, prices: { "<typeID>": { "<date>": avg } } }``.
 
@@ -48,11 +55,14 @@ from esi_env import user_agent
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KILL_DIR = REPO_ROOT / "public" / "data" / "kill_stats"
+MARKET_TREE = REPO_ROOT / "public" / "data" / "market_tree.json"
 DEFAULT_OUT = REPO_ROOT / "public" / "data" / "market_prices.json"
 
 # The Forge (contains Jita) — EVE's primary trade hub region.
 THE_FORGE_REGION_ID = 10000002
 ESI_HISTORY = "https://esi.evetech.net/latest/markets/{region}/history/?type_id={tid}"
+# Capital ships are priced from zKillboard instead of ESI (thin Forge market).
+ZKB_PRICES = "https://zkillboard.com/api/prices/{tid}/"
 
 
 class RateGate:
@@ -115,6 +125,88 @@ def collect_type_ids(dates: list[str], all_window: bool) -> set[int]:
     return ids
 
 
+def load_capital_ship_ids() -> set[int]:
+    """Type ids under the *Ships → Capital Ships* market group.
+
+    Read from the committed ``market_tree.json``; these are priced from
+    zKillboard rather than ESI. Returns an empty set if the tree or the group is
+    missing (then everything falls back to ESI).
+    """
+    if not MARKET_TREE.exists():
+        return set()
+
+    def collect(group: dict) -> set[int]:
+        ids = {t["id"] for t in group.get("types", [])}
+        for g in group.get("groups", []):
+            ids |= collect(g)
+        return ids
+
+    tree = json.loads(MARKET_TREE.read_text(encoding="utf-8"))
+    for root in tree.get("roots", []):
+        if root.get("name") == "Ships":
+            for g in root.get("groups", []):
+                if g.get("name") == "Capital Ships":
+                    return collect(g)
+    return set()
+
+
+def fetch_zkb_prices(tid: int, gate: RateGate, ua: str, retries: int = 4):
+    """Fetch a type's zKillboard price map ``{date: price, currentPrice: str}``.
+
+    Returns the parsed dict, ``{}`` when zKB has no data (404), or ``None`` on
+    give-up. zKB doesn't send ESI's error-limit headers, so we only back off on
+    an explicit ``429``.
+    """
+    url = ZKB_PRICES.format(tid=tid)
+    for attempt in range(retries):
+        gate.acquire()
+        req = urllib.request.Request(
+            url, headers={"User-Agent": ua, "Accept": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                retry_after = e.headers.get("Retry-After")
+                gate.pause(float(retry_after) if retry_after else 5.0)
+                continue
+            if e.code == 404:
+                return {}
+            if 500 <= e.code < 600:
+                time.sleep(2 ** attempt)
+                continue
+            return None
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            time.sleep(2 ** attempt)
+    return None
+
+
+def zkb_window_prices(data: dict, dates: list[str]):
+    """Pick a price per window date from a zKB price map.
+
+    Uses the daily value when present, else ``currentPrice`` (zKB's daily
+    history is often stale for capitals). Returns ``None`` if nothing is usable.
+    """
+    if not data:
+        return None
+    current = None
+    raw = data.get("currentPrice")
+    if raw is not None:
+        try:
+            current = float(raw)
+        except (TypeError, ValueError):
+            current = None
+    picked: dict[str, float] = {}
+    for date in dates:
+        value = data.get(date)
+        if isinstance(value, (int, float)):
+            picked[date] = float(value)
+        elif current is not None:
+            picked[date] = current
+    return picked or None
+
+
 def fetch_history(region: int, tid: int, gate: RateGate, ua: str, retries: int = 4):
     """Fetch a type's market history, returning the parsed rows (or None)."""
     url = ESI_HISTORY.format(region=region, tid=tid)
@@ -175,6 +267,12 @@ def main() -> None:
     if not type_ids:
         sys.exit("error: no item type ids found in the kill window.")
 
+    # Capital ships are priced from zKillboard rather than ESI.
+    capital_ids = load_capital_ship_ids()
+    cap_in_scope = capital_ids & set(type_ids)
+    print(f"pricing {len(type_ids)} types "
+          f"({len(cap_in_scope)} capital ships via zKillboard, rest via ESI).")
+
     # The full User-Agent (with contact) comes from the environment so it isn't
     # published in the repo. See scripts/esi_env.py.
     ua = user_agent()
@@ -187,23 +285,27 @@ def main() -> None:
 
     def work(tid: int):
         nonlocal done
-        rows = fetch_history(args.region, tid, gate, ua)
-        result = None
-        if rows:
-            picked = {
-                r["date"]: r["average"]
-                for r in rows
-                if r.get("date") in window and "average" in r
-            }
-            if picked:
-                result = picked
+        if tid in capital_ids:
+            data = fetch_zkb_prices(tid, gate, ua)
+            result = zkb_window_prices(data, dates) if data is not None else None
+        else:
+            rows = fetch_history(args.region, tid, gate, ua)
+            result = None
+            if rows:
+                picked = {
+                    r["date"]: r["average"]
+                    for r in rows
+                    if r.get("date") in window and "average" in r
+                }
+                if picked:
+                    result = picked
         with lock:
             done += 1
             if result is not None:
                 prices[str(tid)] = result
             if args.progress and (done % 50 == 0 or done == total):
                 print(f"\r  priced {done}/{total} types "
-                      f"({len(prices)} with history)", end="", file=sys.stderr)
+                      f"({len(prices)} with a price)", end="", file=sys.stderr)
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         list(pool.map(work, type_ids))

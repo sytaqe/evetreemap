@@ -29,8 +29,12 @@ selected item.
   groups hierarchically.
 - **Right pane — item detail:** fills the remaining width and shows the
   currently selected item.
-- **Header:** application title (“EVE Treemap”) and the subtitle
-  “Market Browser”.
+- **Header:** application title (“EVE Treemap”) and the view switcher — links
+  for the two Tree Maps (§2) and, on the right, Market Browser. The current mode
+  is reflected in the **URL hash** (`#treemap-all`, `#treemap-destroyed`,
+  `#market`), so opening a link with that hash selects the mode; the hash follows
+  tab clicks and back/forward, and an unknown or missing hash defaults to Tree
+  Map (All).
 
 ### 1.2 Left pane — market group tree
 
@@ -218,7 +222,9 @@ Both datasets below are precomputed into `public/data/`, not fetched at runtime.
 ### 4.1 Market tree
 
 - `scripts/build_market_tree.py` reads `marketGroups.jsonl` and `types.jsonl`
-  and emits a single nested JSON tree to `public/data/market_tree.json`.
+  and emits a single nested JSON tree to `public/data/market_tree.json`. The
+  input SDE is the official CCP JSONL export; the `market-tree.yml` workflow (§7)
+  downloads it and regenerates the tree without keeping the dump in git.
 - Only `published` types that have a `marketGroupID` are included.
 - Groups whose subtree contains no types are pruned; groups and types are sorted
   alphabetically by English name.
@@ -303,9 +309,16 @@ Tree Map tiles (§2), emitting `public/data/market_prices.json`.
 
 - **Items priced:** by default the union of item types in the latest two
   kill-stats days (`--all-window` prices every day in the window instead).
-- **Source:** ESI `GET /markets/{region}/history/?type_id={id}` — The Forge
-  (`10000002`) by default. For each item the `average` is kept for every kill
-  window date present in its history.
+- **Source (most items):** ESI `GET /markets/{region}/history/?type_id={id}` —
+  The Forge (`10000002`) by default. For each item the `average` is kept for
+  every kill window date present in its history.
+- **Source (capital ships):** types under the *Ships → Capital Ships* market
+  group (read from `market_tree.json`) are priced from zKillboard's Prices API
+  (`GET https://zkillboard.com/api/prices/{id}/`) instead — they barely trade on
+  the Forge market. That endpoint returns `{ "<date>": price, …,
+  "currentPrice": "…" }`; the daily value is used per window date, falling back
+  to `currentPrice` where zKB's (often stale) daily history lacks that date. Both
+  sources feed the same `prices` map, so the viewer is unchanged.
 - **Etiquette:** requests carry a descriptive `User-Agent` (from the
   `ESI_USER_AGENT` env var, as in §4.2) and run on a thread pool paced to a
   target rate, backing off on ESI's error-limit headers / `420` / `429`; 5xx and
@@ -346,7 +359,7 @@ major is released.
 | `actions/setup-node`            | `v6`    | `deploy.yml`                         |
 | `actions/upload-pages-artifact` | `v5`    | `deploy.yml`                         |
 | `actions/deploy-pages`          | `v5`    | `deploy.yml`                         |
-| `actions/setup-python`          | `v6`    | `kill-stats.yml`, `kill-stats-day.yml` |
+| `actions/setup-python`          | `v6`    | `kill-stats*.yml`, `market-*.yml`    |
 | `actions/cache`                 | `v6`    | `kill-stats.yml`, `kill-stats-day.yml` |
 
 - **`deploy.yml`** — builds the Vite site and deploys it to GitHub Pages on push
@@ -359,6 +372,19 @@ major is released.
   input (`YYYY-MM-DD`) drives `--day` to (re)aggregate just that day. It shares
   the `actions/cache` id lists and the `kill-stats` concurrency group with
   `kill-stats.yml`.
+- **`market-tree.yml`** — manual (`workflow_dispatch`) regeneration of
+  `market_tree.json` (§4.1): downloads the official EVE SDE (JSONL) from CCP
+  (`developers.eveonline.com`, latest build or a pinned `build` input), runs
+  `build_market_tree.py`, and commits any change to `main` (then dispatches
+  `deploy.yml`). The ~549&nbsp;MB SDE stays out of git. It first checks CCP's
+  `latest.jsonl` build against the one `market_tree.json` was built from
+  (via `scripts/sde_latest_build.py`) and **skips the download when unchanged**;
+  a pinned `build` input forces a rebuild.
+- **`market-prices.yml`** — manual (`workflow_dispatch`) regeneration of
+  `market_prices.json` (§4.3): reruns `build_market_prices.py` against the
+  committed kill-stats window and market tree (`all_window` / `rate` inputs),
+  passing the `ESI_USER_AGENT` secret, and commits any change to `main` (then
+  dispatches `deploy.yml`).
 
 ## Open items
 

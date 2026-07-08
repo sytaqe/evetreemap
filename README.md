@@ -69,7 +69,8 @@ See [`SPEC.md`](SPEC.md) for the detailed UI specification of both views.
 │   ├── build_market_tree.py    # Parses SDE marketGroups + types into the tree
 │   ├── build_kill_stats.py     # Aggregates zKillboard + ESI killmail item totals
 │   ├── build_market_prices.py  # Fetches ESI market history → per-day avg prices
-│   └── esi_env.py              # Reads the ESI User-Agent from ESI_USER_AGENT / .env
+│   ├── esi_env.py              # Reads the ESI User-Agent from ESI_USER_AGENT / .env
+│   └── sde_latest_build.py     # Prints CCP's latest SDE build number
 ├── src/
 │   ├── components/
 │   │   ├── MarketTreeView.tsx  # Left pane: market group tree
@@ -118,6 +119,14 @@ the Market Browser. Only `published` types with a `marketGroupID` are included,
 empty branches are pruned, and entries are sorted by English name. See
 [`SPEC.md`](SPEC.md) §4.1 for the exact output schema.
 
+To refresh it when a new SDE ships without downloading the ~549&nbsp;MB dump
+locally, run the **Regenerate market tree** workflow
+(`.github/workflows/market-tree.yml`, manual): it fetches the official EVE SDE
+(JSONL) from CCP, rebuilds `market_tree.json`, and commits any change to `main`.
+It first compares the latest SDE build against the one `market_tree.json` was
+built from and **skips the download entirely when unchanged** (a pinned `build`
+input forces a rebuild).
+
 ### Market prices
 
 `scripts/build_market_prices.py` precomputes the daily average price used to
@@ -131,11 +140,23 @@ for each window date, emitting `{ generated, region, from, to, dates, prices }`
 where `prices` maps `"<typeID>"` to `{ "<YYYY-MM-DD>": average }`. Writes are
 idempotent (ignoring the timestamp). Rerun it whenever the kill window advances.
 
+**Capital ships** (types under the *Ships → Capital Ships* market group, read
+from `market_tree.json`) are priced from
+[zKillboard's Prices API](https://github.com/zKillboard/zKillboard/wiki/API-(Prices))
+(`GET https://zkillboard.com/api/prices/{id}/`) instead of ESI, since they trade
+thinly or not at all on the Forge market. zKB's daily history can be stale for
+capitals, so any window date it lacks falls back to its `currentPrice`.
+
 ```bash
 npm run prices                                    # latest+prev day items (+progress)
 python scripts/build_market_prices.py             # same, no progress bar
 python scripts/build_market_prices.py --all-window   # price the whole kill window
 ```
+
+To refresh it in CI, run the **Regenerate market prices** workflow
+(`.github/workflows/market-prices.yml`, manual): it reruns the script against the
+committed kill-stats window and market tree and commits any change to `main`.
+Run it after the kill-stats window advances.
 
 ### Kill statistics
 

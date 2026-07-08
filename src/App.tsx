@@ -19,6 +19,28 @@ import "./App.css";
  * metric that sizes the tiles: destroyed + dropped, or destroyed only. */
 type View = "market" | "treemapAll" | "treemapDestroyed";
 
+/** URL hash slug for each view, so a link like `.../#treemap-all` opens it. */
+const VIEW_HASH: Record<View, string> = {
+  market: "market",
+  treemapAll: "treemap-all",
+  treemapDestroyed: "treemap-destroyed",
+};
+
+/** Parse a URL hash into a view (defaults to Tree Map (All) for unknowns). */
+function hashToView(hash: string): View {
+  switch (hash.replace(/^#/, "").toLowerCase()) {
+    case "market":
+    case "market-browser":
+      return "market";
+    case "treemap-destroyed":
+    case "treemapdestroyed":
+    case "destroyed":
+      return "treemapDestroyed";
+    default:
+      return "treemapAll";
+  }
+}
+
 /** Merge the kill index and its per-day files into a single daily series. */
 function mergeKillStats(
   index: KillIndex,
@@ -67,10 +89,27 @@ export default function App() {
   const [selected, setSelected] = useState<MarketType | null>(null);
   const [killStats, setKillStats] = useState<KillStats | null>(null);
   const [prices, setPrices] = useState<MarketPrices | null>(null);
-  const [view, setView] = useState<View>("market");
+  // The view is driven by the URL hash so a link can open a specific mode.
+  const [view, setView] = useState<View>(() => hashToView(window.location.hash));
   // Held here (not in TreemapView) so the drill position is restored when the
   // user switches to the Market Browser and back.
   const [treemapPath, setTreemapPath] = useState<number[]>([]);
+
+  // Keep the URL hash in sync with the view (replaceState so mode switches don't
+  // pile up browser-history entries), and follow the hash on back/forward or a
+  // manual edit.
+  useEffect(() => {
+    const canonical = `#${VIEW_HASH[view]}`;
+    if (window.location.hash !== canonical) {
+      window.history.replaceState(null, "", canonical);
+    }
+  }, [view]);
+
+  useEffect(() => {
+    const onHashChange = () => setView(hashToView(window.location.hash));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   useEffect(() => {
     const url = `${import.meta.env.BASE_URL}data/market_tree.json`;
@@ -130,14 +169,6 @@ export default function App() {
         <nav className="app-nav" aria-label="View">
           <button
             type="button"
-            className={`app-nav-link ${view === "market" ? "active" : ""}`}
-            aria-current={view === "market" ? "page" : undefined}
-            onClick={() => setView("market")}
-          >
-            Market Browser
-          </button>
-          <button
-            type="button"
             className={`app-nav-link ${view === "treemapAll" ? "active" : ""}`}
             aria-current={view === "treemapAll" ? "page" : undefined}
             onClick={() => setView("treemapAll")}
@@ -153,6 +184,14 @@ export default function App() {
             onClick={() => setView("treemapDestroyed")}
           >
             Tree Map (Destroyed)
+          </button>
+          <button
+            type="button"
+            className={`app-nav-link ${view === "market" ? "active" : ""}`}
+            aria-current={view === "market" ? "page" : undefined}
+            onClick={() => setView("market")}
+          >
+            Market Browser
           </button>
         </nav>
       </header>

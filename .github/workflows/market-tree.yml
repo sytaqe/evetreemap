@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: CC0-1.0
+# This file is released into the public domain under the CC0 1.0 Universal license.
+name: Regenerate market tree
+
+# Manual only. Downloads the official EVE Online SDE (JSONL) from CCP, rebuilds
+# public/data/market_tree.json with scripts/build_market_tree.py, and commits any
+# change to main (then dispatches the Pages deploy).
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "SDE build number to fetch (blank = latest)"
+        default: ""
+
+permissions:
+  contents: write
+  actions: write # allow `gh workflow run` to dispatch the deploy workflow
+
+concurrency:
+  group: market-tree
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # Compare the latest SDE build (small latest.jsonl) against the build that
+      # market_tree.json was generated from, and skip the heavy download when
+      # they match. A pinned `build` input forces a rebuild for that build.
+      - name: Check for SDE update
+        id: check
+        env:
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          current="$(python -c "import json; print(json.load(open('public/data/market_tree.json', encoding='utf-8')).get('build'))")"
+          if [ -n "$BUILD" ]; then
+            target="$BUILD"; skip=false
+          else
+            latest="$(python scripts/sde_latest_build.py)"
+            target="$latest"
+            if [ "$current" = "$latest" ]; then skip=true; else skip=false; fi
+          fi
+          echo "current market_tree build=$current, target SDE build=$target, skip=$skip"
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "build=$target" >> "$GITHUB_OUTPUT"
+
+      # CCP publishes the SDE in JSONL as a zip. The zip's layout may or may not
+      # have a top folder, so we locate the dir that actually contains
+      # marketGroups.jsonl.
+      - name: Download and unpack the SDE (JSONL)
+        if: steps.check.outputs.skip != 'true'
+        env:
+          BUILD: ${{ steps.check.outputs.build }}
+        run: |
+          set -euo pipefail
+          url="https://developers.eveonline.com/static-data/tranquility/eve-online-static-data-${BUILD}-jsonl.zip"
+          echo "Downloading $url"
+          curl -fL --retry 3 -A "evetreemap SDE fetch" -o sde.zip "$url"
+          unzip -q sde.zip -d sde
+          SDE_DIR="$(python -c "import pathlib,sys; h=list(pathlib.Path('sde').rglob('marketGroups.jsonl')); print(h[0].parent) if h else sys.exit('marketGroups.jsonl not found in SDE')")"
+          echo "Using SDE dir: $SDE_DIR"
+          echo "SDE_DIR=$SDE_DIR" >> "$GITHUB_ENV"
+
+      - name: Rebuild market_tree.json
+        if: steps.check.outputs.skip != 'true'
+        run: python scripts/build_market_tree.py --sde "$SDE_DIR"
+
+      - name: Commit market tree
+        id: commit
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/market_tree.json
+          if git diff --cached --quiet; then
+            echo "No changes - market_tree.json is already up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            build="$(python -c "import json; print(json.load(open('public/data/market_tree.json', encoding='utf-8')).get('build'))")"
+            git commit -m "Regenerate market_tree.json (SDE build ${build})"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A push made with GITHUB_TOKEN does not trigger the deploy workflow, so
+      # dispatch it explicitly (only when the tree actually changed).
+      - name: Trigger deploy
+        if: steps.commit.outputs.changed == 'true'
+        run: gh workflow run deploy.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -212,6 +212,14 @@ commits new data it then dispatches the Pages deploy workflow explicitly with
 site is republished automatically. This needs the `actions: write` permission,
 already set in the workflow.
 
+If the change touches the **latest day** (a new day rolled over, or the most
+recent day's aggregate changed), it **skips the direct deploy** and instead
+dispatches `market-prices.yml`, which regenerates the treemap prices — which
+track the latest two days — and deploys itself. That ordering avoids publishing
+new kill data against stale prices (a new day would otherwise briefly leave the
+treemap without prices for that date). `kill-stats-day.yml` chains market-prices
+the same way (only when the day it refreshed is the latest one).
+
 `.github/workflows/kill-stats-day.yml` is the same, but for a **single day**: it
 takes a required `day` input (`YYYY-MM-DD`) and runs `--day`, to (re)aggregate or
 top up just that day. It shares the `actions/cache` id lists and the

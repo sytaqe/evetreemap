@@ -61,19 +61,41 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/data/kill_stats
+          # Newest day file (dates sort lexically). "latest day changed" means
+          # this run touched the most recent day (e.g. re-aggregating today).
+          latest="$(ls public/data/kill_stats/[0-9]*.json | sort | tail -1)"
           if git diff --cached --quiet; then
             echo "No changes — nothing to commit."
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "latest_changed=false" >> "$GITHUB_OUTPUT"
           else
+            if git diff --cached --quiet -- "$latest"; then
+              echo "latest_changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "latest_changed=true" >> "$GITHUB_OUTPUT"
+            fi
             git commit -m "Update kill statistics for ${{ inputs.day }} (manual run)"
             git push
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       # A push made with GITHUB_TOKEN does not trigger the deploy workflow, so
-      # dispatch it explicitly (only when the data actually changed).
+      # dispatch it explicitly. Skip it when the latest day changed — then
+      # market-prices.yml (below) deploys after regenerating prices, so we never
+      # publish new kill data against stale prices.
       - name: Trigger deploy
-        if: steps.commit.outputs.changed == 'true'
+        if: >-
+          steps.commit.outputs.changed == 'true' &&
+          steps.commit.outputs.latest_changed != 'true'
         run: gh workflow run deploy.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # When the latest day changed, refresh market prices too — they cover the
+      # latest two days' items. market-prices.yml commits and deploys on its own,
+      # which is the deploy for this run.
+      - name: Trigger market-price refresh
+        if: steps.commit.outputs.latest_changed == 'true'
+        run: gh workflow run market-prices.yml
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -368,10 +368,15 @@ major is released.
   refresh (§4.2); on committing new data it dispatches `deploy.yml` via
   `gh workflow run` so the site republishes (needs `actions: write`). It passes
   the `ESI_USER_AGENT` repository **secret** to the script as an env var (§4.2).
+  When the change touches the **latest day** (a new day rolled over or the most
+  recent day's aggregate changed) it **skips its own deploy** and dispatches
+  `market-prices.yml` instead — which regenerates the (latest-two-days) treemap
+  prices and deploys — so new kill data is never published against stale prices.
 - **`kill-stats-day.yml`** — the same, for a **single day**: a required `day`
   input (`YYYY-MM-DD`) drives `--day` to (re)aggregate just that day. It shares
   the `actions/cache` id lists and the `kill-stats` concurrency group with
-  `kill-stats.yml`.
+  `kill-stats.yml`, and likewise dispatches `market-prices.yml` when the day it
+  refreshed is the latest one.
 - **`market-tree.yml`** — manual (`workflow_dispatch`) regeneration of
   `market_tree.json` (§4.1): downloads the official EVE SDE (JSONL) from CCP
   (`developers.eveonline.com`, latest build or a pinned `build` input), runs

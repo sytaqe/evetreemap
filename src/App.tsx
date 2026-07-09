@@ -26,9 +26,12 @@ const VIEW_HASH: Record<View, string> = {
   treemapDestroyed: "treemap-destroyed",
 };
 
-/** Parse a URL hash into a view (defaults to Tree Map (All) for unknowns). */
+/**
+ * Parse a URL hash into a view (defaults to Tree Map (All) for unknowns). Only
+ * the first `/`-separated segment names the view; the rest is the drill path.
+ */
 function hashToView(hash: string): View {
-  switch (hash.replace(/^#/, "").toLowerCase()) {
+  switch (hash.replace(/^#/, "").split("/")[0].toLowerCase()) {
     case "market":
     case "market-browser":
       return "market";
@@ -39,6 +42,25 @@ function hashToView(hash: string): View {
     default:
       return "treemapAll";
   }
+}
+
+/**
+ * Parse the treemap drill path (group ids) from the segments after the view
+ * slug, e.g. `#treemap-all/9/16` → `[9, 16]`. Non-numeric segments are dropped.
+ */
+function hashToPath(hash: string): number[] {
+  return hash
+    .replace(/^#/, "")
+    .split("/")
+    .slice(1)
+    .map((s) => Number.parseInt(s, 10))
+    .filter((n) => Number.isInteger(n));
+}
+
+/** Build the canonical hash for a view and (for treemap views) its drill path. */
+function toHash(view: View, path: number[]): string {
+  const suffix = view !== "market" && path.length ? `/${path.join("/")}` : "";
+  return `#${VIEW_HASH[view]}${suffix}`;
 }
 
 /** Merge the kill index and its per-day files into a single daily series. */
@@ -89,27 +111,61 @@ export default function App() {
   const [selected, setSelected] = useState<MarketType | null>(null);
   const [killStats, setKillStats] = useState<KillStats | null>(null);
   const [prices, setPrices] = useState<MarketPrices | null>(null);
-  // The view is driven by the URL hash so a link can open a specific mode.
+  // The view and treemap drill path are both driven by the URL hash
+  // (`#<view>/<id>/<id>/…`), so a link can open a specific mode at a specific
+  // drill position and Back/Forward step through it. The path is held here (not
+  // in TreemapView) so it survives switching to the Market Browser and back.
   const [view, setView] = useState<View>(() => hashToView(window.location.hash));
-  // Held here (not in TreemapView) so the drill position is restored when the
-  // user switches to the Market Browser and back.
-  const [treemapPath, setTreemapPath] = useState<number[]>([]);
+  const [treemapPath, setTreemapPath] = useState<number[]>(() =>
+    hashToPath(window.location.hash),
+  );
 
-  // Keep the URL hash in sync with the view (replaceState so mode switches don't
-  // pile up browser-history entries), and follow the hash on back/forward or a
-  // manual edit.
+  // Normalize the hash once on load, then follow Back/Forward (popstate) and
+  // manual hash edits (hashchange) by re-reading the view and path from it. A
+  // market hash carries no path, so the drill position is left untouched there.
   useEffect(() => {
-    const canonical = `#${VIEW_HASH[view]}`;
+    const sync = () => {
+      const hash = window.location.hash;
+      const nextView = hashToView(hash);
+      setView(nextView);
+      if (nextView !== "market") setTreemapPath(hashToPath(hash));
+    };
+    const canonical = toHash(
+      hashToView(window.location.hash),
+      hashToPath(window.location.hash),
+    );
     if (window.location.hash !== canonical) {
       window.history.replaceState(null, "", canonical);
     }
-  }, [view]);
-
-  useEffect(() => {
-    const onHashChange = () => setView(hashToView(window.location.hash));
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
+    window.addEventListener("popstate", sync);
+    window.addEventListener("hashchange", sync);
+    return () => {
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("hashchange", sync);
+    };
   }, []);
+
+  // Write the hash for a view + drill path. `push` adds a history entry (drilling
+  // in, opening an item) so Back steps through; otherwise it replaces the current
+  // entry (top-level mode switches) so those don't pile up in history.
+  const writeHash = (nextView: View, nextPath: number[], push: boolean) => {
+    const hash = toHash(nextView, nextPath);
+    if (window.location.hash === hash) return;
+    if (push) window.history.pushState(null, "", hash);
+    else window.history.replaceState(null, "", hash);
+  };
+
+  // Top-level mode switch (nav buttons): replace, carrying the current path.
+  const selectView = (v: View) => {
+    setView(v);
+    writeHash(v, treemapPath, false);
+  };
+
+  // Drill / breadcrumb navigation: push so Back returns to the previous level.
+  const drillTo = (nextPath: number[]) => {
+    setTreemapPath(nextPath);
+    writeHash(view, nextPath, true);
+  };
 
   useEffect(() => {
     const url = `${import.meta.env.BASE_URL}data/market_tree.json`;
@@ -160,6 +216,8 @@ export default function App() {
   const openInMarket = (item: MarketType) => {
     setSelected(item);
     setView("market");
+    // Push so Back returns to the treemap at the same drill position.
+    writeHash("market", treemapPath, true);
   };
 
   return (
@@ -171,7 +229,7 @@ export default function App() {
             type="button"
             className={`app-nav-link ${view === "treemapAll" ? "active" : ""}`}
             aria-current={view === "treemapAll" ? "page" : undefined}
-            onClick={() => setView("treemapAll")}
+            onClick={() => selectView("treemapAll")}
           >
             Tree Map (All)
           </button>
@@ -181,7 +239,7 @@ export default function App() {
               view === "treemapDestroyed" ? "active" : ""
             }`}
             aria-current={view === "treemapDestroyed" ? "page" : undefined}
-            onClick={() => setView("treemapDestroyed")}
+            onClick={() => selectView("treemapDestroyed")}
           >
             Tree Map (Destroyed)
           </button>
@@ -189,7 +247,7 @@ export default function App() {
             type="button"
             className={`app-nav-link ${view === "market" ? "active" : ""}`}
             aria-current={view === "market" ? "page" : undefined}
-            onClick={() => setView("market")}
+            onClick={() => selectView("market")}
           >
             Market Browser
           </button>
@@ -223,7 +281,7 @@ export default function App() {
                 prices={prices}
                 metric={view === "treemapDestroyed" ? "destroyed" : "all"}
                 path={treemapPath}
-                onPathChange={setTreemapPath}
+                onPathChange={drillTo}
                 onSelectItem={openInMarket}
               />
             ) : (

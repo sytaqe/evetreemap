@@ -33,8 +33,9 @@ on the tile. Two variants pick the quantity: **Tree Map (All)** uses
 `destroyed + dropped` and **Tree Map (Destroyed)** uses `destroyed` only. Tiles
 are grouped by the `market_tree.json` group hierarchy (excluding the Apparel,
 Blueprints & Reactions, Personalization, Ship SKINs, and Skills top-level
-groups), drawn two levels deep at a time: a group two levels below the current
-view is a single tile you drill into, and a breadcrumb walks back up. Links at
+groups), drawn three levels deep at a time: a group three levels below the
+current view is a single tile you drill into, and a breadcrumb walks back up.
+Links at
 the top of the UI switch between the Market Browser and the two Tree Maps.
 
 See [`SPEC.md`](SPEC.md) for the detailed UI specification of both views.

@@ -34,7 +34,12 @@ selected item.
   is reflected in the **URL hash** (`#treemap-all`, `#treemap-destroyed`,
   `#market`), so opening a link with that hash selects the mode; the hash follows
   tab clicks and back/forward, and an unknown or missing hash defaults to Tree
-  Map (All).
+  Map (All). For the Tree Map views the current **drill path** is appended as the
+  group ids below the view slug (e.g. `#treemap-all/4/1367` is Ships ▸ Cruisers),
+  so a link opens the map already drilled to that group. Drilling in (or opening
+  an item in the Market Browser) pushes a browser-history entry, so **Back** steps
+  back up the drill path; top-level tab switches replace the current entry instead
+  of piling up. A path segment that no longer names a live group is ignored.
 
 ### 1.2 Left pane — market group tree
 
@@ -152,11 +157,20 @@ which offers two variants that differ only in the sizing metric:
 - **Excluded groups:** whole top-level market groups that aren't item
   "consumption" of interest are hidden — **Apparel**, **Blueprints & Reactions**,
   **Personalization**, **Ship SKINs**, and **Skills** (matched by English name).
-- **Depth-limited nesting:** only **two levels** below the current node are
+- **Depth-limited nesting:** only **three levels** below the current node are
   drawn, not the whole subtree. A direct child group becomes an expandable
   **section** (a framed box with a header strip) whose own children are packed
-  inside it; a group **two levels down** is drawn as a single **tile** rather
-  than being expanded — you drill into it to go deeper. Items always draw as
+  inside it, nested one more level the same way; a group **three levels down** is
+  drawn as a single **tile** rather than being expanded — you drill into it to go
+  deeper. **Exception:** **faction groups** are never stopped at the cutoff —
+  they always expand one level further so their ships/items stay visible. This
+  covers every faction grouping in the market tree (matched by English name): the
+  empire races (Amarr, Caldari, Gallente, Minmatar), the empire states/navies
+  (Amarr Empire, Caldari State, Gallente Federation, Minmatar Republic, Amarr
+  Navy, Caldari Navy, Ammatar Navy), and the pirate/special factions (ORE,
+  Triglavian, EDENCOM, CONCORD, Sisters of EVE, Mordu's Legion, Angel Cartel,
+  Angels, Blood Raiders, Guristas, Sansha's Nation, Serpentis).
+  Items always draw as
   tiles at whatever level they appear. A [squarified][squarify] layout keeps
   tiles close to square. A subtree whose tiles would all be sub-pixel (nothing
   visible) is dropped **recursively**, so no empty group frames are drawn.
@@ -165,11 +179,12 @@ which offers two variants that differ only in the sizing metric:
   item icon; hovering shows the ISK value. Clicking a header **zooms into** that
   group.
 - **Drill-down & breadcrumb:** clicking a section header or a group **tile**
-  zooms in, showing that group's two levels filling the canvas. The toolbar
+  zooms in, showing that group's three levels filling the canvas. The toolbar
   breadcrumb lists the full path (`All groups ▸ <Group> ▸ <Subgroup> ▸ …`); each
   ancestor is a link that jumps back to that level, and **All groups** returns to
-  the top. The drill position is **preserved** when switching to the Market
-  Browser and back.
+  the top. The drill position is reflected in the URL hash (§1.1), **preserved**
+  when switching to the Market Browser and back, and steppable with browser
+  Back/Forward.
 - **Metric note:** the toolbar states the metric, the latest day, and the
   comparison day.
 

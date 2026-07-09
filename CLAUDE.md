@@ -10,10 +10,10 @@ Read `RELEASE.md` for the procedure to release changes to the remote `main` bran
 
 - React + Vite frontend, deployed to GitHub Pages as a fully static site
 - No backend server — all data is served as static JSON files under `public/data/`
-- Python scripts handle ESI data fetching (`scripts/fetch_kills.py`) and SDE download (`scripts/download_sde.py`)
-- GitHub Actions automate daily builds/deploys
-- EVE SSO authentication uses PKCE (client-side only); tokens stored in browser cookies
-- SDE files are gitignored and downloaded at build time
+- Python scripts under `scripts/` prepare the static data: `build_market_tree.py` (SDE → market tree), `build_kill_stats.py` (zKillboard + ESI killmail aggregation), and `build_market_prices.py` (ESI/zKillboard → per-day prices)
+- GitHub Actions build/deploy to GitHub Pages on push to `main`, plus manual workflows to regenerate the market tree, kill stats, and market prices
+- EVE SSO authentication (planned) uses PKCE (client-side only); tokens stored in browser cookies
+- The SDE dump is gitignored (~549 MB); the generated `market_tree.json` is committed, so CI deploys without downloading the SDE
 
 ## Conventions
 

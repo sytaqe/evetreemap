@@ -256,7 +256,39 @@ const MIN_TILE = 2; // tiles smaller than this in either dimension aren't drawn
 // How many market-tree levels below the current node are drawn. Items always
 // render as tiles; groups deeper than this render as a single (drillable) tile
 // instead of being expanded — you drill in to go further.
-const MAX_LEVELS = 2;
+const MAX_LEVELS = 3;
+// Faction groups are always expanded one level past the cutoff instead of
+// stopping as a single tile, so their ships/items stay visible. Matched by the
+// group's English name; the set covers every faction grouping in the market
+// tree (empire races, empire states/navies, and pirate/special factions).
+const FORCE_EXPAND = new Set([
+  // Empire races (ship hulls, components)
+  "Amarr",
+  "Caldari",
+  "Gallente",
+  "Minmatar",
+  // Empire states / navies (faction materials, insignias)
+  "Amarr Empire",
+  "Caldari State",
+  "Gallente Federation",
+  "Minmatar Republic",
+  "Amarr Navy",
+  "Caldari Navy",
+  "Ammatar Navy",
+  // Pirate & special factions
+  "ORE",
+  "Triglavian",
+  "EDENCOM",
+  "CONCORD",
+  "Sisters of EVE",
+  "Mordu's Legion",
+  "Angel Cartel",
+  "Angels",
+  "Blood Raiders",
+  "Guristas",
+  "Sansha's Nation",
+  "Serpentis",
+]);
 
 /**
  * A leaf rectangle for either an item or a not-expanded group: colored by the
@@ -405,8 +437,10 @@ export function TreemapView({
       for (const t of tiles) {
         const n = t.item;
 
-        // Item, or a group at the depth cutoff → a single tile.
-        if (n.kind === "item" || depth >= MAX_LEVELS) {
+        // Item, or a group at the depth cutoff → a single tile. Empire faction
+        // groups are exempt from the cutoff and always expand one level more.
+        const forced = n.kind === "group" && FORCE_EXPAND.has(n.name);
+        if (n.kind === "item" || (depth >= MAX_LEVELS && !forced)) {
           if (t.w < MIN_TILE || t.h < MIN_TILE) continue;
           if (n.kind === "item") {
             els.push(

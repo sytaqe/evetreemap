@@ -20,7 +20,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Always build the current tip of main, not the commit this run was pinned
+      # to. The kill-stats/market-prices workflows dispatch this deploy right
+      # after `git push`, and that dispatch can resolve to the pre-push commit
+      # (a propagation race), which would otherwise deploy stale data.
       - uses: actions/checkout@v7
+        with:
+          ref: main
       - uses: actions/setup-node@v6
         with:
           node-version: 20

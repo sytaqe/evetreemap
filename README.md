@@ -211,7 +211,9 @@ processed-id lists via `actions/cache`, and commits any changes to `main`. It is
 commits new data it then dispatches the Pages deploy workflow explicitly with
 `gh workflow run deploy.yml` (a `GITHUB_TOKEN` push does not trigger it), so the
 site is republished automatically. This needs the `actions: write` permission,
-already set in the workflow.
+already set in the workflow. Because that dispatch can resolve to the pre-push
+commit (a propagation race that would deploy stale data), `deploy.yml` checks out
+the **tip of `main`** (`ref: main`) rather than the commit the run was pinned to.
 
 If the change touches the **latest day** (a new day rolled over, or the most
 recent day's aggregate changed), it **skips the direct deploy** and instead

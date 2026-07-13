@@ -452,6 +452,15 @@
   color: var(--text-dim);
 }
 
+.detail-zkb-link {
+  color: var(--accent, #6ea8fe);
+  text-decoration: none;
+}
+
+.detail-zkb-link:hover {
+  text-decoration: underline;
+}
+
 /* --- Market history chart --- */
 .detail-history {
   margin-top: 24px;

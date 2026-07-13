@@ -1,8 +1,8 @@
 # EVE Treemap — Project Guide for Claude
 
-Read `README.md` for the full application specification, architecture, data formats, and setup instructions.
+Read `README.md` for setup, build/run, and deployment instructions (the practical developer front door).
 
-Read `SPEC.md` for the detailed UI and feature specification: display columns, tag label conditions and colors, ship icon overlays, SDE data classification rules, and row background behavior.
+Read `SPEC.md` for the full specification: UI/feature behavior, SDE data classification rules, data pipelines and JSON formats, images/ESI, authentication, CI workflows, and architecture & repository layout. Design and data-format detail lives here, not in `README.md`.
 
 Read `RELEASE.md` for the procedure to release changes to the remote `main` branch. `RELEASE.md` should be gitignored
 

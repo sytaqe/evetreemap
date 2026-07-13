@@ -7,8 +7,9 @@ This file is released into the public domain under the CC0 1.0 Universal license
 
 This document specifies the user-facing behavior of the application. Two views
 are implemented — the **Market Browser** (§1) and the **Tree Map** (§2) — and a
-link at the top of the UI switches between them. For architecture, data formats,
-and setup, see [`README.md`](README.md).
+link at the top of the UI switches between them. Data formats and pipelines are
+in §4, and architecture & repository layout in §8; for setup and build/run
+instructions, see [`README.md`](README.md).
 
 > **Status:** Values marked `TBD` are placeholders owned by the project
 > maintainer. Fill them in as the implementation is finalized, and keep this
@@ -364,7 +365,7 @@ ESI authentication is required for either:
 
 ## 7. GitHub Actions workflows
 
-Two workflows under `.github/workflows/`. Third-party actions are pinned to the
+Five workflows under `.github/workflows/`. Third-party actions are pinned to the
 major-version tag below (auto-updates within the major); bump these when a new
 major is released.
 
@@ -378,7 +379,10 @@ major is released.
 | `actions/cache`                 | `v6`    | `kill-stats.yml`, `kill-stats-day.yml` |
 
 - **`deploy.yml`** — builds the Vite site and deploys it to GitHub Pages on push
-  to `main` or `workflow_dispatch`.
+  to `main` or `workflow_dispatch`. It checks out the **tip of `main`**
+  (`ref: main`) rather than the commit the run was pinned to: the data workflows
+  dispatch it right after `git push`, and that dispatch can resolve to the
+  pre-push commit (a propagation race), which would otherwise deploy stale data.
 - **`kill-stats.yml`** — manual (`workflow_dispatch`) incremental kill-stats
   refresh (§4.2); on committing new data it dispatches `deploy.yml` via
   `gh workflow run` so the site republishes (needs `actions: write`). It passes
@@ -405,6 +409,69 @@ major is released.
   committed kill-stats window and market tree (`all_window` / `rate` inputs),
   passing the `ESI_USER_AGENT` secret, and commits any change to `main` (then
   dispatches `deploy.yml`).
+
+## 8. Architecture & repository layout
+
+### 8.1 Architecture
+
+- **Frontend:** React + [Vite](https://vitejs.dev/), TypeScript.
+- **Hosting:** GitHub Pages, fully static — no server-side runtime.
+- **Data:** application data is served as static JSON under `public/data/`,
+  generated from the SDE and public ESI/zKillboard data by the Python scripts in
+  §4. `market_tree.json` is **committed**, so the site deploys without the
+  ~549&nbsp;MB SDE dump in CI.
+- **Images:** item icons/renders come from the public, key-less EVE image server
+  (§5) — no ESI authentication.
+- **Authentication (planned):** EVE SSO via the PKCE flow, client-side only;
+  tokens stored in browser cookies, no client secret shipped (§6).
+- **Automation:** GitHub Actions build and deploy on push to `main`, plus manual
+  data-refresh workflows (§7).
+
+### 8.2 Static Data Export (SDE)
+
+The SDE is EVE Online's authoritative static data set (types, groups,
+categories, blueprints, map data, …), distributed as JSONL (one JSON object per
+line). This project consumes the JSONL dump (folder
+`eve-online-static-data-<build>-jsonl/` in local development).
+
+- The dump is **gitignored** (~549&nbsp;MB); only the generated
+  `market_tree.json` is committed. Locally it is expected at the folder above.
+- A `_sde.jsonl` manifest identifies the build, e.g.
+  `{"_key": "sde", "buildNumber": 3409592, "releaseDate": "2026-06-25T12:00:48Z"}`.
+- Records are keyed by `_key` and carry localized `name` maps (`en`, `de`,
+  `fr`, `ja`, …); the app uses the **English** (`en`) names only (§3).
+
+### 8.3 Repository layout
+
+```
+.
+├── public/
+│   ├── data/
+│   │   ├── market_tree.json       # Generated market-group item tree (committed, §4.1)
+│   │   ├── market_prices.json     # Per-day average prices for treemap tiles (committed, §4.3)
+│   │   └── kill_stats/            # Per-day destroyed/dropped files + index.json (§4.2)
+│   └── vite.svg
+├── scripts/
+│   ├── build_market_tree.py       # SDE marketGroups + types → market tree (§4.1)
+│   ├── build_kill_stats.py        # zKillboard + ESI killmail aggregation (§4.2)
+│   ├── build_market_prices.py     # ESI/zKillboard → per-day prices (§4.3)
+│   ├── esi_env.py                 # Reads the ESI User-Agent from ESI_USER_AGENT / .env
+│   └── sde_latest_build.py        # Prints CCP's latest SDE build number
+├── src/
+│   ├── components/
+│   │   ├── MarketTreeView.tsx     # Left pane: market group tree (§1.2)
+│   │   ├── ItemDetail.tsx         # Right pane: image, name, kill cards (§1.3)
+│   │   ├── MarketHistoryChart.tsx # Price/volume + kill overlay chart (§1.3.1)
+│   │   └── TreemapView.tsx        # Tree Map view (§2)
+│   ├── App.tsx                    # View switcher, layout + data loading
+│   ├── eve.ts                     # EVE image server + ESI history helpers
+│   ├── treemap.ts                 # Dependency-free squarified treemap layout
+│   └── types.ts                   # Market tree / kill / price data types
+├── .github/workflows/             # deploy, kill-stats, kill-stats-day, market-tree, market-prices (§7)
+├── CLAUDE.md                      # Guide for Claude
+├── README.md                      # Setup, build, run, deploy
+└── SPEC.md                        # This file — UI/feature + data/architecture spec
+```
 
 ## Open items
 

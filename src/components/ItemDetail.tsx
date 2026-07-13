@@ -125,6 +125,16 @@ export function ItemDetail({ item, killStats }: Props) {
         <div>
           <h2 className="detail-name">{item.name}</h2>
           <p className="detail-meta">Type ID: {item.id}</p>
+          <p className="detail-meta">
+            <a
+              className="detail-zkb-link"
+              href={`https://zkillboard.com/item/${item.id}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              zKillboard
+            </a>
+          </p>
         </div>
 
         {killCards && (

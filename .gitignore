@@ -1,5 +1,6 @@
-# EVE Online static data export (downloadable SDE dump, ~549MB) — not tracked
-eve-online-static-data-3409592-jsonl/
+# EVE Online static data export (downloadable SDE dump, ~549MB) — not tracked.
+# Glob so any SDE build number is ignored (the folder name embeds the build).
+eve-online-static-data-*-jsonl/
 
 # Node / Vite build
 node_modules/

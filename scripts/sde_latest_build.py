@@ -11,11 +11,14 @@ workflow compares this against the ``build`` field committed in
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.request
 
 LATEST = "https://developers.eveonline.com/static-data/tranquility/latest.jsonl"
-UA = "evetreemap SDE version check (+https://github.com/sytaqe/evetreemap)"
+# Use the configured ESI User-Agent when available (CI/local), else a generic,
+# non-personal descriptive string — this only fetches a small public CCP file.
+UA = os.environ.get("ESI_USER_AGENT") or "evetreemap SDE version check"
 
 
 def main() -> None:

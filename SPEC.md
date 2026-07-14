@@ -369,6 +369,11 @@ Five workflows under `.github/workflows/`. Third-party actions are pinned to the
 major-version tag below (auto-updates within the major); bump these when a new
 major is released.
 
+The four data workflows (`kill-stats*.yml`, `market-tree.yml`, `market-prices.yml`)
+all commit to `main`, and a long run can overlap another's commit. Their push
+step therefore **rebases onto the latest `main` and retries** (a few times) so a
+concurrent commit doesn't reject the push with a non-fast-forward error.
+
 | Action                          | Version | Used in                              |
 | ------------------------------- | ------- | ------------------------------------ |
 | `actions/checkout`              | `v7`    | all workflows                        |

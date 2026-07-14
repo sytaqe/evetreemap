@@ -85,7 +85,18 @@ jobs:
           else
             build="$(python -c "import json; print(json.load(open('public/data/market_tree.json', encoding='utf-8')).get('build'))")"
             git commit -m "Regenerate market_tree.json (SDE build ${build})"
-            git push
+            # Other data workflows push to main too; it may have advanced during
+            # this run. Rebase onto the latest main and retry so a concurrent
+            # commit doesn't reject the push.
+            pushed=false
+            for attempt in 1 2 3 4 5; do
+              if git push; then pushed=true; break; fi
+              echo "push rejected (attempt $attempt) — rebasing on updated main"
+              git pull --rebase origin main
+            done
+            if [ "$pushed" != true ]; then
+              echo "::error::failed to push market tree after retries"; exit 1
+            fi
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 

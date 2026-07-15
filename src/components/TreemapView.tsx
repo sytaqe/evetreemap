@@ -147,7 +147,17 @@ function buildValueTree(
   metric: TreemapMetric,
 ): ValueTree {
   const dates = killStats.dates;
-  const last = dates.length - 1;
+  // Size tiles by the most recent kill day that market_prices actually covers,
+  // not the absolute latest. If a market-prices refresh lags behind a new kill
+  // day (its price for that day isn't published yet), fall back to the last
+  // priced day so the map shows that day instead of blanking out entirely.
+  const pricedDates = new Set(prices.dates ?? []);
+  let last = dates.length - 1;
+  if (pricedDates.size > 0) {
+    let i = last;
+    while (i >= 0 && !pricedDates.has(dates[i])) i--;
+    if (i >= 0) last = i; // else: no overlap — keep latest, showing the empty message
+  }
   const prev = last - 1;
   const latestDate = dates[last];
   const prevDate = prev >= 0 ? dates[prev] : null;

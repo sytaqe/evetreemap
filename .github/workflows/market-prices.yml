@@ -29,7 +29,12 @@ jobs:
   rebuild:
     runs-on: ubuntu-latest
     steps:
+      # Check out the live tip of main, not the commit this run was pinned to at
+      # dispatch, so a run queued behind another (concurrency) starts from the
+      # latest committed data rather than a stale base that conflicts on push.
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: actions/setup-python@v6
         with:

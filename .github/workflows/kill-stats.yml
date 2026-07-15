@@ -27,7 +27,14 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
+      # Check out the live tip of main, not the commit this run was pinned to at
+      # dispatch. A run queued behind another (shared concurrency group) would
+      # otherwise start from a stale base — missing the prior run's commit — and
+      # re-aggregate the same day files divergently, which then can't be merged
+      # on the push rebase.
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: actions/setup-python@v6
         with:

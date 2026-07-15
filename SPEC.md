@@ -370,9 +370,16 @@ major-version tag below (auto-updates within the major); bump these when a new
 major is released.
 
 The four data workflows (`kill-stats*.yml`, `market-tree.yml`, `market-prices.yml`)
-all commit to `main`, and a long run can overlap another's commit. Their push
-step therefore **rebases onto the latest `main` and retries** (a few times) so a
-concurrent commit doesn't reject the push with a non-fast-forward error.
+all commit to `main`, and a long run can overlap another's commit. Two guards keep
+this from failing:
+
+- They **check out the live tip of `main`** (`ref: main`), not the commit the run
+  was pinned to at dispatch. A run queued behind another (shared concurrency
+  group) would otherwise start from a stale base and, for kill-stats, re-aggregate
+  the same day files divergently — an unmergeable conflict on the push rebase.
+- Their push step **rebases onto the latest `main` and retries** (a few times), so
+  a commit that lands mid-run (a different file, e.g. `market_tree.json`) doesn't
+  reject the push with a non-fast-forward error.
 
 | Action                          | Version | Used in                              |
 | ------------------------------- | ------- | ------------------------------------ |
